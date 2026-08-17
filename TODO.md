@@ -19,17 +19,17 @@
 
 ## P1：补齐训练闭环
 
-- [ ] 实现 `transformer/training/loss.py`：基于 `nn.CrossEntropyLoss(ignore_index=PAD_IDX)` 的目标语言 token loss。
-- [ ] 实现 `transformer/training/optimizer.py`：创建 Adam/AdamW 优化器；可选加入 Transformer 学习率 warmup 调度器。
-- [ ] 实现 `transformer/training/trainer.py`：
-  - [ ] Teacher forcing：输入 `tgt[:, :-1]`，监督目标为 `tgt[:, 1:]`。
-  - [ ] 创建源 padding mask 与目标 decoder mask。
-  - [ ] 训练 step：zero grad、forward、loss、backward、optimizer step。
-  - [ ] 验证 step：`model.eval()` 和 `torch.no_grad()`。
-  - [ ] 记录每 epoch 的 train/validation loss。
-  - [ ] 支持 device（CPU/CUDA）和随机种子。
-- [ ] 实现 `transformer/config.py`：集中放置数据路径、模型超参数、训练超参数和 checkpoint 路径。
-- [ ] 实现 `scripts/train.py`：串联数据集、模型、优化器和 Trainer，并保存 checkpoint。
+- [x] 实现 `transformer/training/loss.py`：基于 `nn.CrossEntropyLoss(ignore_index=PAD_IDX)` 的目标语言 token loss。
+- [x] 实现 `transformer/training/optimizer.py`：创建 Adam/AdamW 优化器；可选加入 Transformer 学习率 warmup 调度器。
+- [x] 实现 `transformer/training/trainer.py`：
+  - [x] Teacher forcing：输入 `tgt[:, :-1]`，监督目标为 `tgt[:, 1:]`。
+  - [x] 创建源 padding mask 与目标 decoder mask。
+  - [x] 训练 step：zero grad、forward、loss、backward、optimizer step。
+  - [x] 验证 step：`model.eval()` 和 `torch.no_grad()`。
+  - [x] 记录每 epoch 的 train/validation loss。
+  - [x] 支持 device（CPU/CUDA）和随机种子。
+- [x] 实现 `transformer/config.py`：集中放置数据路径、模型超参数、训练超参数和 checkpoint 路径。
+- [x] 实现 `scripts/train.py`：串联数据集、模型、优化器和 Trainer，并保存 checkpoint。
 
 验收：使用少量样本可以过拟合；使用完整语料可以完成至少一个 epoch，并在 `checkpoints/` 输出可恢复的模型。
 
