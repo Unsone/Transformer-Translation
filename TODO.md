@@ -35,14 +35,14 @@
 
 ## P2：实现推理与评估
 
-- [ ] 定义 checkpoint 格式：至少保存 `model_state_dict`、词表、模型配置、epoch 与验证损失。
-- [ ] 实现 checkpoint 加载与恢复训练能力。
-- [ ] 实现 `scripts/translate.py`：
-  - [ ] 输入英文句子，复用训练时的英文/中文词表。
-  - [ ] Encoder 仅运行一次。
-  - [ ] 从 `<sos>` 开始贪心解码，遇到 `<eos>` 或达到最大长度时停止。
-  - [ ] 将 token id 解码成中文文本并输出。
-- [ ] 实现 `scripts/evaluate.py`：在验证集上报告 token loss/perplexity；可选增加 BLEU。
+- [x] 定义 checkpoint 格式：至少保存 `model_state_dict`、词表、模型配置、epoch 与验证损失。
+- [x] 实现 checkpoint 加载与恢复训练能力。
+- [x] 实现 `scripts/translate.py`：
+  - [x] 输入英文句子，复用训练时的英文/中文词表。
+  - [x] Encoder 仅运行一次。
+  - [x] 从 `<sos>` 开始贪心解码，遇到 `<eos>` 或达到最大长度时停止。
+  - [x] 将 token id 解码成中文文本并输出。
+- [x] 实现 `scripts/evaluate.py`：在验证集上报告 token loss/perplexity；可选增加 BLEU。
 
 验收：可从 checkpoint 翻译任意英文输入，并能在验证集输出稳定的评估指标。
 

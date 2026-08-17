@@ -17,7 +17,7 @@ if str(PROJECT_ROOT) not in sys.path:
 from transformer.config import ModelConfig, TrainingConfig
 from transformer.data.dataset import get_dataloader
 from transformer.model import Transformer
-from transformer.training import Trainer, create_optimizer
+from transformer.training import Trainer, create_optimizer, load_checkpoint, load_model_from_checkpoint, restore_optimizer
 
 
 def parse_args() -> argparse.Namespace:
@@ -30,6 +30,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--learning-rate", type=float, default=defaults.learning_rate)
     parser.add_argument("--max-examples", type=int, default=defaults.max_examples)
     parser.add_argument("--seed", type=int, default=defaults.seed)
+    parser.add_argument("--resume", type=Path, help="从已有 checkpoint 恢复模型和优化器状态")
     model_defaults = ModelConfig()
     parser.add_argument("--d-model", type=int, default=model_defaults.d_model)
     parser.add_argument("--num-heads", type=int, default=model_defaults.num_heads)
@@ -69,14 +70,27 @@ def main() -> None:
         max_examples=training_config.max_examples,
         val_ratio=training_config.val_ratio,
     )
-    model = Transformer(len(src_vocab), len(tgt_vocab), **model_config.to_dict())
+    if args.resume:
+        model, resumed_checkpoint = load_model_from_checkpoint(args.resume, device)
+        if len(src_vocab) != len(resumed_checkpoint["src_vocab"]) or len(tgt_vocab) != len(resumed_checkpoint["tgt_vocab"]):
+            raise ValueError("当前数据生成的词表与待恢复 checkpoint 不一致")
+        model_config = ModelConfig(**resumed_checkpoint["model_config"])
+        previous_history = resumed_checkpoint.get("history", [])
+    else:
+        model = Transformer(len(src_vocab), len(tgt_vocab), **model_config.to_dict())
+        previous_history = []
     trainer = Trainer(
         model,
         create_optimizer(model, training_config.learning_rate, training_config.weight_decay),
         device,
     )
+    if args.resume:
+        restore_optimizer(trainer.optimizer, load_checkpoint(args.resume, device))
     print(f"device={device}, src_vocab={len(src_vocab)}, tgt_vocab={len(tgt_vocab)}")
-    history = trainer.fit(train_loader, val_loader, training_config.epochs)
+    new_history = trainer.fit(train_loader, val_loader, training_config.epochs)
+    for record in new_history:
+        record["epoch"] += len(previous_history)
+    history = previous_history + new_history
     for record in history:
         print(
             f"epoch={record['epoch']} train_loss={record['train_loss']:.4f} "
@@ -89,6 +103,7 @@ def main() -> None:
         src_vocab=src_vocab,
         tgt_vocab=tgt_vocab,
         history=history,
+        epoch=history[-1]["epoch"],
     )
     print(f"checkpoint saved to {training_config.checkpoint_path}")
 
