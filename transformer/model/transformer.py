@@ -58,6 +58,23 @@ class Transformer(nn.Module):
         """
         super().__init__()
 
+        if src_vocab_size <= 0:
+            raise ValueError("src_vocab_size 必须大于 0")
+        if tgt_vocab_size <= 0:
+            raise ValueError("tgt_vocab_size 必须大于 0")
+        if d_model <= 0:
+            raise ValueError("d_model 必须大于 0")
+        if num_heads <= 0 or d_model % num_heads != 0:
+            raise ValueError("num_heads 必须大于 0，且 d_model 必须能被 num_heads 整除")
+        if num_layers <= 0:
+            raise ValueError("num_layers 必须大于 0")
+        if d_ff <= 0:
+            raise ValueError("d_ff 必须大于 0")
+        if not 0.0 <= dropout < 1.0:
+            raise ValueError("dropout 必须位于 [0, 1) 区间")
+        if max_len <= 0:
+            raise ValueError("max_len 必须大于 0")
+
         # 源语言和目标语言分别用独立的 Embedding，因为是两种不同的语言、不同的词表，
         # 参数不共享（如果是同语言的任务，比如摘要生成，可以考虑共享）
         self.src_embed = Embeddings(src_vocab_size, d_model)
