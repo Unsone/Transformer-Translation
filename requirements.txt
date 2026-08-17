@@ -1,0 +1,4 @@
+# Python 3.10--3.12 recommended. Install a CUDA-specific PyTorch wheel first when using NVIDIA GPUs.
+torch>=2.2
+numpy>=1.26
+jupyterlab>=4.0
