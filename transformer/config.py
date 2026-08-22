@@ -28,6 +28,9 @@ class TrainingConfig:
     epochs: int = 10
     learning_rate: float = 3e-4
     weight_decay: float = 1e-4
+    warmup_steps: int = 0
+    max_grad_norm: float | None = 1.0
+    save_every: int = 1
     min_freq: int = 1
     max_examples: int | None = None
     val_ratio: float = 0.1

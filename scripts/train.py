@@ -4,6 +4,7 @@
 """
 
 import argparse
+import logging
 import random
 import sys
 from pathlib import Path
@@ -17,7 +18,14 @@ if str(PROJECT_ROOT) not in sys.path:
 from transformer.config import ModelConfig, TrainingConfig
 from transformer.data.dataset import get_dataloader
 from transformer.model import Transformer
-from transformer.training import Trainer, create_optimizer, load_checkpoint, load_model_from_checkpoint, restore_optimizer
+from transformer.training import (
+    Trainer,
+    create_linear_warmup_scheduler,
+    create_optimizer,
+    load_checkpoint,
+    load_model_from_checkpoint,
+    restore_optimizer,
+)
 
 
 def parse_args() -> argparse.Namespace:
@@ -31,6 +39,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-examples", type=int, default=defaults.max_examples)
     parser.add_argument("--seed", type=int, default=defaults.seed)
     parser.add_argument("--resume", type=Path, help="从已有 checkpoint 恢复模型和优化器状态")
+    parser.add_argument("--warmup-steps", type=int, default=defaults.warmup_steps)
+    parser.add_argument("--max-grad-norm", type=float, default=defaults.max_grad_norm)
+    parser.add_argument("--save-every", type=int, default=defaults.save_every)
+    parser.add_argument("--log-path", type=Path, help="训练日志文件路径；默认写入 checkpoint 同目录")
     model_defaults = ModelConfig()
     parser.add_argument("--d-model", type=int, default=model_defaults.d_model)
     parser.add_argument("--num-heads", type=int, default=model_defaults.num_heads)
@@ -54,7 +66,20 @@ def main() -> None:
         learning_rate=args.learning_rate,
         max_examples=args.max_examples,
         seed=args.seed,
+        warmup_steps=args.warmup_steps,
+        max_grad_norm=args.max_grad_norm,
+        save_every=args.save_every,
     )
+    if training_config.save_every <= 0:
+        raise ValueError("save_every 必须大于 0")
+    log_path = args.log_path or training_config.checkpoint_path.with_suffix(".log")
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s %(message)s",
+        handlers=[logging.StreamHandler(), logging.FileHandler(log_path, encoding="utf-8")],
+    )
+    logger = logging.getLogger(__name__)
     model_config = ModelConfig(
         d_model=args.d_model,
         num_heads=args.num_heads,
@@ -81,33 +106,67 @@ def main() -> None:
     else:
         model = Transformer(len(src_vocab), len(tgt_vocab), **model_config.to_dict())
         previous_history = []
-    trainer = Trainer(
-        model,
-        create_optimizer(model, training_config.learning_rate, training_config.weight_decay),
-        device,
-    )
+    optimizer = create_optimizer(model, training_config.learning_rate, training_config.weight_decay)
+    scheduler = create_linear_warmup_scheduler(optimizer, training_config.warmup_steps)
+    trainer = Trainer(model, optimizer, device, scheduler, training_config.max_grad_norm)
     if args.resume:
-        restore_optimizer(trainer.optimizer, load_checkpoint(args.resume, device))
-    print(f"device={device}, src_vocab={len(src_vocab)}, tgt_vocab={len(tgt_vocab)}")
-    new_history = trainer.fit(train_loader, val_loader, training_config.epochs)
-    for record in new_history:
-        record["epoch"] += len(previous_history)
-    history = previous_history + new_history
-    for record in history:
-        print(
-            f"epoch={record['epoch']} train_loss={record['train_loss']:.4f} "
-            f"val_loss={record['val_loss']:.4f}"
-        )
-    trainer.save_checkpoint(
-        training_config.checkpoint_path,
-        model_config=model_config.to_dict(),
-        training_config=training_config.to_dict(),
-        src_vocab=src_vocab,
-        tgt_vocab=tgt_vocab,
-        history=history,
-        epoch=history[-1]["epoch"],
+        checkpoint = load_checkpoint(args.resume, device)
+        restore_optimizer(trainer.optimizer, checkpoint)
+        if trainer.scheduler is not None and checkpoint.get("scheduler_state_dict") is not None:
+            trainer.scheduler.load_state_dict(checkpoint["scheduler_state_dict"])
+    logger.info("device=%s, src_vocab=%s, tgt_vocab=%s", device, len(src_vocab), len(tgt_vocab))
+
+    best_val_loss = min(
+        (record["val_loss"] for record in previous_history if record.get("val_loss") is not None), default=float("inf")
     )
-    print(f"checkpoint saved to {training_config.checkpoint_path}")
+
+    def checkpoint_metadata(history):
+        return {
+            "model_config": model_config.to_dict(),
+            "training_config": training_config.to_dict(),
+            "src_vocab": src_vocab,
+            "tgt_vocab": tgt_vocab,
+            "history": history,
+            "epoch": history[-1]["epoch"],
+        }
+
+    def save_epoch(record, new_history):
+        nonlocal best_val_loss
+        history = previous_history + new_history
+        if record["epoch"] % training_config.save_every == 0:
+            epoch_path = training_config.checkpoint_path.with_name(
+                f"{training_config.checkpoint_path.stem}-epoch{record['epoch']}{training_config.checkpoint_path.suffix}"
+            )
+            trainer.save_checkpoint(epoch_path, **checkpoint_metadata(history))
+            trainer.save_checkpoint(training_config.checkpoint_path, **checkpoint_metadata(history))
+            logger.info("checkpoint saved: %s", epoch_path)
+        if record["val_loss"] is not None and record["val_loss"] < best_val_loss:
+            best_val_loss = record["val_loss"]
+            best_path = training_config.checkpoint_path.with_name(
+                f"{training_config.checkpoint_path.stem}-best{training_config.checkpoint_path.suffix}"
+            )
+            trainer.save_checkpoint(best_path, **checkpoint_metadata(history))
+            logger.info("best checkpoint saved: %s", best_path)
+        logger.info(
+            "epoch=%s train_loss=%.4f val_loss=%s lr=%.6g seconds=%.2f",
+            record["epoch"],
+            record["train_loss"],
+            f"{record['val_loss']:.4f}" if record["val_loss"] is not None else "n/a",
+            record["learning_rate"],
+            record["seconds"],
+        )
+
+    new_history = trainer.fit(
+        train_loader,
+        val_loader,
+        training_config.epochs,
+        start_epoch=len(previous_history),
+        on_epoch_end=save_epoch,
+    )
+    history = previous_history + new_history
+    if history[-1]["epoch"] % training_config.save_every != 0:
+        trainer.save_checkpoint(training_config.checkpoint_path, **checkpoint_metadata(history))
+    logger.info("latest checkpoint saved to %s", training_config.checkpoint_path)
 
 
 if __name__ == "__main__":

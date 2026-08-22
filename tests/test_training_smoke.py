@@ -9,7 +9,7 @@ from torch.utils.data import DataLoader
 
 from transformer.data.dataset import TranslationDataset, collate_fn
 from transformer.model import Transformer
-from transformer.training import Trainer, create_optimizer
+from transformer.training import Trainer, create_linear_warmup_scheduler, create_optimizer
 
 
 class TrainingSmokeTest(unittest.TestCase):
@@ -33,6 +33,25 @@ class TrainingSmokeTest(unittest.TestCase):
         self.assertEqual(saved["epoch"], 1)
         self.assertIn("model_state_dict", saved)
         self.assertIn("optimizer_state_dict", saved)
+
+    def test_warmup_and_epoch_callback(self):
+        dataset = TranslationDataset([[1, 4, 2]], [[1, 7, 2]])
+        loader = DataLoader(dataset, batch_size=1, collate_fn=collate_fn)
+        model = Transformer(10, 12, d_model=8, num_heads=2, num_layers=1, d_ff=16, dropout=0.0)
+        optimizer = create_optimizer(model, learning_rate=1e-3)
+        trainer = Trainer(
+            model,
+            optimizer,
+            torch.device("cpu"),
+            scheduler=create_linear_warmup_scheduler(optimizer, warmup_steps=2),
+            max_grad_norm=1.0,
+        )
+        saved_epochs = []
+        history = trainer.fit(loader, epochs=2, on_epoch_end=lambda record, _: saved_epochs.append(record["epoch"]))
+
+        self.assertEqual(saved_epochs, [1, 2])
+        self.assertEqual([record["epoch"] for record in history], [1, 2])
+        self.assertGreater(history[-1]["learning_rate"], 0)
 
 
 if __name__ == "__main__":

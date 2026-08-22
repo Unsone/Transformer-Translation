@@ -99,4 +99,5 @@ tail -f logs/initial.log
 
 - `checkpoints/*.pt` 被 Git 忽略，不会自动上传到仓库；请单独备份重要 checkpoint。
 - 训练集目前约 2.3 万句，适合验证实现和初步实验。要获得更好的翻译质量，建议加入更大、更干净的平行语料，并在 P3 阶段改进数据划分与分词。
-- 训练脚本在每次运行结束时保存 checkpoint。长时间任务中断前不会产生中间 checkpoint，因此建议先用较小 epoch 分段训练并通过 `--resume` 衔接。
+- 训练脚本默认每个 epoch 会保存 `initial-epochN.pt`、更新 `initial.pt`（最新状态），并在验证损失改善时更新 `initial-best.pt`。可用 `--save-every N` 调整 epoch checkpoint 保存间隔，`--resume` 可从任一受信任 checkpoint 恢复。
+- 每次训练还会写入与 checkpoint 同名的 `.log` 文件，记录 loss、学习率和每轮耗时；可选使用 `--warmup-steps` 与 `--max-grad-norm` 调整训练稳定性。
