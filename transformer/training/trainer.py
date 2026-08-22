@@ -79,6 +79,8 @@ class Trainer:
             raise ValueError("epochs 必须大于 0")
         history = []
         for epoch in range(start_epoch + 1, start_epoch + epochs + 1):
+            if self.device.type == "cuda":
+                torch.cuda.reset_peak_memory_stats(self.device)
             start_time = time.perf_counter()
             losses = [self.train_step(batch) for batch in train_loader]
             if not losses:
@@ -90,6 +92,9 @@ class Trainer:
                 "val_loss": val_loss,
                 "learning_rate": self.optimizer.param_groups[0]["lr"],
                 "seconds": time.perf_counter() - start_time,
+                "gpu_peak_memory_mib": (
+                    torch.cuda.max_memory_allocated(self.device) / 1024**2 if self.device.type == "cuda" else None
+                ),
             }
             history.append(record)
             if on_epoch_end is not None:

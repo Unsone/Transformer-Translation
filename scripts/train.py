@@ -18,6 +18,7 @@ if str(PROJECT_ROOT) not in sys.path:
 from transformer.config import ModelConfig, TrainingConfig
 from transformer.data.dataset import get_dataloader
 from transformer.model import Transformer
+from transformer.translation import greedy_decode_ids
 from transformer.training import (
     Trainer,
     create_linear_warmup_scheduler,
@@ -43,6 +44,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-grad-norm", type=float, default=defaults.max_grad_norm)
     parser.add_argument("--save-every", type=int, default=defaults.save_every)
     parser.add_argument("--log-path", type=Path, help="训练日志文件路径；默认写入 checkpoint 同目录")
+    parser.add_argument("--sample-count", type=int, default=3, help="每个 epoch 输出的验证翻译样例数；0 表示关闭")
     model_defaults = ModelConfig()
     parser.add_argument("--d-model", type=int, default=model_defaults.d_model)
     parser.add_argument("--num-heads", type=int, default=model_defaults.num_heads)
@@ -72,6 +74,8 @@ def main() -> None:
     )
     if training_config.save_every <= 0:
         raise ValueError("save_every 必须大于 0")
+    if args.sample_count < 0:
+        raise ValueError("sample_count 不能小于 0")
     log_path = args.log_path or training_config.checkpoint_path.with_suffix(".log")
     log_path.parent.mkdir(parents=True, exist_ok=True)
     logging.basicConfig(
@@ -114,7 +118,14 @@ def main() -> None:
         restore_optimizer(trainer.optimizer, checkpoint)
         if trainer.scheduler is not None and checkpoint.get("scheduler_state_dict") is not None:
             trainer.scheduler.load_state_dict(checkpoint["scheduler_state_dict"])
-    logger.info("device=%s, src_vocab=%s, tgt_vocab=%s", device, len(src_vocab), len(tgt_vocab))
+    parameter_count = sum(parameter.numel() for parameter in model.parameters())
+    logger.info(
+        "device=%s, src_vocab=%s, tgt_vocab=%s, parameters=%s",
+        device,
+        len(src_vocab),
+        len(tgt_vocab),
+        f"{parameter_count:,}",
+    )
 
     best_val_loss = min(
         (record["val_loss"] for record in previous_history if record.get("val_loss") is not None), default=float("inf")
@@ -148,13 +159,27 @@ def main() -> None:
             trainer.save_checkpoint(best_path, **checkpoint_metadata(history))
             logger.info("best checkpoint saved: %s", best_path)
         logger.info(
-            "epoch=%s train_loss=%.4f val_loss=%s lr=%.6g seconds=%.2f",
+            "epoch=%s train_loss=%.4f val_loss=%s lr=%.6g seconds=%.2f gpu_peak_mib=%s",
             record["epoch"],
             record["train_loss"],
             f"{record['val_loss']:.4f}" if record["val_loss"] is not None else "n/a",
             record["learning_rate"],
             record["seconds"],
+            f"{record['gpu_peak_memory_mib']:.1f}" if record["gpu_peak_memory_mib"] is not None else "n/a",
         )
+        if val_loader is not None and args.sample_count:
+            sample_indices = random.Random(training_config.seed + record["epoch"]).sample(
+                range(len(val_loader.dataset)), min(args.sample_count, len(val_loader.dataset))
+            )
+            model.eval()
+            for index in sample_indices:
+                src_ids, tgt_ids = val_loader.dataset[index]
+                source = " ".join(src_vocab.decode(src_ids.tolist()))
+                reference = "".join(tgt_vocab.decode(tgt_ids.tolist()))
+                hypothesis = "".join(
+                    tgt_vocab.decode(greedy_decode_ids(model, src_ids, device))
+                )
+                logger.info("sample source=%r reference=%r hypothesis=%r", source, reference, hypothesis)
 
     new_history = trainer.fit(
         train_loader,

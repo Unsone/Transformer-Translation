@@ -12,7 +12,9 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from transformer.data.dataset import get_dataloader
+from transformer.metrics import corpus_bleu
 from transformer.training import Trainer, create_optimizer, load_model_from_checkpoint
+from transformer.translation import greedy_decode_ids
 
 
 def main() -> None:
@@ -23,6 +25,8 @@ def main() -> None:
     parser.add_argument("--max-examples", type=int)
     parser.add_argument("--split", choices=["validation", "test"], default="validation")
     parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--sample-count", type=int, default=3)
+    parser.add_argument("--max-tokens", type=int, default=64)
     args = parser.parse_args()
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model, checkpoint = load_model_from_checkpoint(args.checkpoint, device)
@@ -42,6 +46,27 @@ def main() -> None:
     loss = trainer.validate(dataloader)
     print(f"{args.split}_loss={loss:.4f}")
     print(f"perplexity={math.exp(loss):.4f}")
+    references, hypotheses = [], []
+    samples = []
+    model.eval()
+    for batch in dataloader:
+        for src_ids, tgt_ids in zip(batch["src"], batch["tgt"]):
+            generated = greedy_decode_ids(model, src_ids, device, args.max_tokens)
+            reference_tokens = checkpoint["tgt_vocab"].decode(tgt_ids.tolist())
+            hypothesis_tokens = checkpoint["tgt_vocab"].decode(generated)
+            references.append(reference_tokens)
+            hypotheses.append(hypothesis_tokens)
+            if len(samples) < args.sample_count:
+                samples.append(
+                    (
+                        " ".join(checkpoint["src_vocab"].decode(src_ids.tolist())),
+                        "".join(reference_tokens),
+                        "".join(hypothesis_tokens),
+                    )
+                )
+    print(f"bleu={corpus_bleu(references, hypotheses):.2f}")
+    for source, reference, hypothesis in samples:
+        print(f"source: {source}\nreference: {reference}\nhypothesis: {hypothesis}\n")
 
 
 if __name__ == "__main__":
