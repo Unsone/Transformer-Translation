@@ -21,21 +21,26 @@ def main() -> None:
     parser.add_argument("--data-path", type=Path, default=PROJECT_ROOT / "data" / "cmn.txt")
     parser.add_argument("--batch-size", type=int, default=64)
     parser.add_argument("--max-examples", type=int)
+    parser.add_argument("--split", choices=["validation", "test"], default="validation")
+    parser.add_argument("--seed", type=int, default=42)
     args = parser.parse_args()
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model, checkpoint = load_model_from_checkpoint(args.checkpoint, device)
-    _, val_loader, _, _ = get_dataloader(
+    _, val_loader, test_loader, _, _ = get_dataloader(
         str(args.data_path),
         batch_size=args.batch_size,
         max_examples=args.max_examples,
         src_vocab=checkpoint["src_vocab"],
         tgt_vocab=checkpoint["tgt_vocab"],
+        seed=args.seed,
+        return_test_loader=True,
     )
-    if val_loader is None:
-        raise ValueError("验证集为空；请提供至少 10 条样本")
+    dataloader = val_loader if args.split == "validation" else test_loader
+    if dataloader is None:
+        raise ValueError("所选数据切分为空；请提供至少 10 条样本")
     trainer = Trainer(model, create_optimizer(model), device)
-    loss = trainer.validate(val_loader)
-    print(f"validation_loss={loss:.4f}")
+    loss = trainer.validate(dataloader)
+    print(f"{args.split}_loss={loss:.4f}")
     print(f"perplexity={math.exp(loss):.4f}")
 
 

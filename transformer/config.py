@@ -31,6 +31,7 @@ class TrainingConfig:
     min_freq: int = 1
     max_examples: int | None = None
     val_ratio: float = 0.1
+    test_ratio: float = 0.1
     seed: int = 42
 
     def to_dict(self) -> dict:

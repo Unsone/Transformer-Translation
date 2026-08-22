@@ -69,6 +69,8 @@ def main() -> None:
         min_freq=training_config.min_freq,
         max_examples=training_config.max_examples,
         val_ratio=training_config.val_ratio,
+        test_ratio=training_config.test_ratio,
+        seed=training_config.seed,
     )
     if args.resume:
         model, resumed_checkpoint = load_model_from_checkpoint(args.resume, device)
